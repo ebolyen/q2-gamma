@@ -8,7 +8,8 @@ setup(
     cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
     package_data={
-        'q2_gamma.plot': ['assets/dist/*', 'assets/dist/licenses/*']
+        'q2_gamma.visualizers.plot': [
+            'assets/dist/*', 'assets/dist/licenses/*']
     },
     author="Evan Bolyen",
     author_email="ebolyen@gmail.com",
