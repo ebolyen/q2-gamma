@@ -1,5 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const HtmlWebpackIncludeAssetsPlugin = require('html-webpack-include-assets-plugin');
 
 module.exports = {
   entry: './app/index.js',
@@ -24,7 +25,14 @@ module.exports = {
     ]
   },
   plugins: [
-    new HtmlWebpackPlugin()
+    new HtmlWebpackPlugin({
+      title: 'gamma plot'
+    }),
+    new HtmlWebpackIncludeAssetsPlugin({
+      assets: ['data/packed_table.jsonp', 'data/tree.jsonp'],
+      append: true,
+      jsExtensions: ['.jsonp', '.js']
+    })
   ]
 }
 
