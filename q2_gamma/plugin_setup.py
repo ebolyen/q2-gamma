@@ -18,7 +18,7 @@ plugin = plg.Plugin(
 )
 
 plugin.visualizers.register_function(
-    function=q2_gamma.visualizers.plot,
+    function=q2_gamma.visualizers.simple_plot,
     inputs={
         'table': FeatureTable[Frequency | PresenceAbsence],
         'feature_tree': Hierarchy | Phylogeny[Rooted] | FeatureData[Taxonomy]
@@ -26,7 +26,9 @@ plugin.visualizers.register_function(
     parameters={
         'metadata': plg.Metadata,
         'case_where': plg.Str,
-        'control_where': plg.Str
+        'control_where': plg.Str,
+        'n_transects': plg.Int % plg.Range(1, 50),
+        'stratify_by': plg.Str
     },
     input_descriptions={
         'table': '',

@@ -1,0 +1,55 @@
+{
+  "init": {
+    "tableLoaded": true,
+    "treeLoaded": true,
+    "samplesLoaded": true,
+    "featuresLoaded": true
+  },
+  "wasm": {
+    "memory": "new LinearMemory()",
+    "alloc": "",
+    "dealloc": ""
+  },
+  "samples": ["sampleA", "sampleB", "sampleC", "sampleD"],
+  "features": ["feature1", "feature2", "feature3", "feature4"],
+  "table": {
+    "data": "new ArrayBuffer()",
+    "bits": [4, 4],
+    "bytes": [4, 4]
+  },
+  "tree": {
+    "topology": "new Uint32Array()",
+    "lengths": "new Float64Array()",
+    "names": ["root", "k_bacteria", "k_archaea"]
+  },
+  "transectMode": "multiple",
+  "transects": [
+    {
+      "depth": 4,
+      "N": 50,
+      "N_case": 35,
+      "N_control": 20,
+      "N_both": 10,
+      "table": {
+        "data": "new ArrayBuffer()",
+        "bits": [4, 4],
+        "bytes": [4, 4]
+      },
+      "transpose": {
+        "data": "new ArrayBuffer()",
+        "bits": [4, 4],
+        "bytes": [4, 4]
+      }
+    }
+  ],
+  "": {
+
+  },
+  "pairwisePlot": {
+    "d3": [{"transect": 0, "index": 32}, {"transect": 0, "index": 33}],
+    "":
+  },
+  "featurePlot": {
+    "d3": 
+  }
+}
