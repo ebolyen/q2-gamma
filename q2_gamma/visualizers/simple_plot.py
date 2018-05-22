@@ -94,8 +94,6 @@ def write_ranks(output_dir, collapsed_counts, ranks, distance):
 
     rank_table = collapsed_counts.to_frame()
     rank_table.index.name = "id"
-    # These vectors are aligned to the table, which is aligned to this series
-    # from the group call
     rank_table['Case'] = ranks[0]
     rank_table['Control'] = ranks[1]
     rank_table['Shared'] = ranks[2]
@@ -182,10 +180,11 @@ def is_float(n):
 def pairwise_components(table, comparisons):
     points = []
     feature_count = table.length('observation')
-    r_g1_and_g2 = np.zeros(feature_count, dtype=int)
-    r_g2_sans_g1 = np.zeros(feature_count, dtype=int)
-    r_g1_sans_g2 = np.zeros(feature_count, dtype=int)
-    r_sans_g1_sans_g2 = np.zeros(feature_count, dtype=int)
+    features = table.ids('observation')
+    r_g1_and_g2 = pd.Series(np.zeros(feature_count, dtype=int), index=features)
+    r_g2_sans_g1 = pd.Series(np.zeros(feature_count, dtype=int), index=features)
+    r_g1_sans_g2 = pd.Series(np.zeros(feature_count, dtype=int), index=features)
+    r_sans_g1_sans_g2 = pd.Series(np.zeros(feature_count, dtype=int), index=features)
 
     for s1, s2 in comparisons:
         v1 = table.data(s1).astype(bool)
@@ -267,8 +266,12 @@ def tree_to_array(tree):
 
         distance_to_longest_tip = 0
         for tip in node.tips():
-            distance_to_longest_tip = max(distance_to_longest_tip,
-                                          node.distance(tip))
+            if distance_to_longest_tip:
+                distance_to_longest_tip = min(distance_to_longest_tip,
+                                              node.distance(tip))
+            else:
+                distance_to_longest_tip = node.distance(tip)
+
         for child in node.children:
             child.parent_idx = idx
 
