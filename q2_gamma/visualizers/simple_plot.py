@@ -8,7 +8,9 @@ import ternary
 import numpy as np
 import pandas as pd
 import matplotlib.cm as cm
+from matplotlib.colors import to_hex
 import matplotlib.pyplot as plt
+from jinja2 import Environment, BaseLoader
 import qiime2 as q2
 
 from q2_gamma.geommed import geometric_median
@@ -17,8 +19,12 @@ from q2_feature_table import group
 
 def simple_plot(output_dir, table: biom.Table, feature_tree: skbio.TreeNode,
                 metadata: q2.Metadata, case_where: str, control_where: str,
-                n_transects: int=10, stratify_by: str=None):
+                n_transects: int=10, stratify_by: str=None, mode: str='max'):
     print("Data extracted")
+    layer_dir = os.path.join(output_dir, 'layers')
+    rank_dir = os.path.join(output_dir, 'ranks')
+    os.mkdir(layer_dir)
+    os.mkdir(rank_dir)
 
     metadata = metadata.filter_ids(table.ids(axis='sample'))
     case_samples = sorted(list(metadata.get_ids(case_where)))
@@ -34,11 +40,11 @@ def simple_plot(output_dir, table: biom.Table, feature_tree: skbio.TreeNode,
     for n in feature_tree.traverse():
         if not n.length:
             n.length = 0
-    tree = tree_to_array(feature_tree)
+    tree = tree_to_array(feature_tree, mode)
     print("Tree index created")
 
     possible_transects = len(np.unique(np.asarray(tree['distances'])))
-    tree_length = tree['distances'][0]  # the root
+    tree_length = tree['distances'][0] # root of tree
     if n_transects > possible_transects:
         n_transects = possible_transects
         print("Only %d transects exist, using that instead" % n_transects)
@@ -48,14 +54,19 @@ def simple_plot(output_dir, table: biom.Table, feature_tree: skbio.TreeNode,
 
     figure_gen = prepare_plot(tree_length)
     figure_gen.send(None)  # initialize co-routine
+    colors = []
 
-    feature_ids = table.ids(axis='observation')
-    points, ranks = pairwise_components(table, get_pairs())
-    write_ranks(output_dir, pd.Series(feature_ids, index=feature_ids), ranks, None)
-    figure_gen.send(points)
+    points, _ = pairwise_components(table, get_pairs())
+    color_fig, highlight_fig, color = figure_gen.send((points, None))
 
-    collapsed_groups = pd.DataFrame()
+    color_fig.savefig(os.path.join(layer_dir, 'original.png'), transparent=True)
+    plt.close(color_fig)
+    highlight_fig.savefig(os.path.join(layer_dir, 'original.h.png'), transparent=True)
+    plt.close(highlight_fig)
+    colors.append(color)
+
     rank_files = []
+    collapsed_groups = pd.DataFrame()
     for distance in transects:
         collapsed_table, collapsed_counts, groups = group_by_transect(
             table, tree, distance)
@@ -64,80 +75,110 @@ def simple_plot(output_dir, table: biom.Table, feature_tree: skbio.TreeNode,
 
         points, ranks = pairwise_components(collapsed_table, get_pairs())
 
-        filename = write_ranks(output_dir, collapsed_counts, ranks, distance)
+        filename = write_ranks(rank_dir, collapsed_counts, ranks, distance)
         rank_files.append(filename)
 
-        figure_gen.send((points, distance))
+        color_fig, highlight_fig, color = figure_gen.send((points, distance))
+        colors.append(color)
+
+        color_fig.savefig(os.path.join(layer_dir, 'T_%s.png' % distance), transparent=True)
+        plt.close(color_fig)
+        highlight_fig.savefig(os.path.join(layer_dir, 'T_%s.h.png' % distance), transparent=True)
+        plt.close(highlight_fig)
 
     print("Finalizing visualization")
     figure = figure_gen.send((None, None))
-    figure.savefig(os.path.join(output_dir, 'figure.png'))
+    figure.savefig(os.path.join(layer_dir, 'trajectory.png'), transparent=True)
+    plt.close(figure)
+
+    background = next(figure_gen)
+    background.savefig(os.path.join(layer_dir, 'bg.png'), transparent=True)
+    plt.close(background)
 
     with open(os.path.join(output_dir, 'collapsed_groups.tsv'), 'w') as fh:
         collapsed_groups.to_csv(fh, sep='\t')
 
     with open(os.path.join(output_dir, 'index.html'), 'w') as fh:
-        fh.write("""<html><body><img src="figure.png" />""")
-        fh.write("<p><a href='collapsed_groups.tsv'>collapsed_groups.tsv</a></p>")
-        fh.write("""<ul>""")
-        for filename in rank_files:
-            fh.write("<li><a href='%s'>%s</a></li>" % (filename, filename))
-        fh.write("</ul></body></html>")
-
+        template = Environment(loader=BaseLoader).from_string(TEMPLATE)
+        fh.write(template.render({
+            'legend': list(zip(['original'] + ['T_%s' % d for d in transects] + ['trajectory'],
+                               list(map(to_hex, colors)) + ['red'])),
+            'filenames': rank_files
+        }))
 
 def write_ranks(output_dir, collapsed_counts, ranks, distance):
     name = "feature_ranks_no_transect.tsv"
     if distance is not None:
-        name = "feature_ranks_transect_%s.tsv" % distance
+        name = "T_%s.tsv" % distance
 
     path = os.path.join(output_dir, name)
 
     rank_table = collapsed_counts.to_frame()
     rank_table.index.name = "id"
+    rank_table['Group Difference'] = (ranks[0] - ranks[1]).abs()
     rank_table['Case'] = ranks[0]
     rank_table['Control'] = ranks[1]
     rank_table['Shared'] = ranks[2]
     rank_table['Missing'] = ranks[3]
+    total = sum(ranks[i][0] for i in range(4))
+    rank_table = rank_table.sort_values(by='Group Difference', ascending=False)
+    rank_table['Group Difference'] = ((ranks[0] - ranks[1]) / total).map("{:+.1%}".format)
     with open(path, 'w') as fh:
         rank_table.to_csv(fh, sep='\t')
 
     return name
 
 
-def prepare_plot(tree_length):
+def figure_factory(background=False):
     figure, tax = ternary.figure(scale=1.0)
-    figure.set_size_inches(9, 9)
-    tax.set_title("", fontsize=20)
-    tax.bottom_axis_label("Case", fontsize=14)
-    tax.left_axis_label("Control", fontsize=14)
-    tax.right_axis_label("Shared", fontsize=14)
-    tax.ticks(axis='lbr', linewidth=1, multiple=0.1, tick_formats="%.1f")
+    figure.set_size_inches(6, 6)
+    if background:
+        tax.set_title("", fontsize=20)
+        tax.bottom_axis_label("Case", fontsize=14)
+        tax.left_axis_label("Control", fontsize=14)
+        tax.right_axis_label("Shared", fontsize=14)
+        tax.ticks(axis='lbr', linewidth=1, multiple=0.1, tick_formats="%.1f")
+        tax.gridlines(multiple=0.05, color="grey")
+    else:
+        tax.get_axes().axis('off')
+
     tax.clear_matplotlib_ticks()
 
-    tax.gridlines(multiple=0.05, color="grey")
     tax.line((0, 1, 0), (0.5, 0, 0.5), linewidth=.5, color='black', linestyle="-")
+    return figure, tax
+
+
+def scatter_plot(points, color):
+    fig, ax = figure_factory()
+    ax.scatter(points, marker='.', s=10, color=color)
+    yield fig
+    if color != 'cyan':
+        yield from scatter_plot(points, 'cyan')
+
+
+def prepare_plot(tree_length):
+    line_fig, line_ax = figure_factory()
     line = []
 
-    t_null = yield
-    tax.scatter(t_null, marker='.', s=10, color='red')
-    t_null_center = [tuple(geometric_median(np.asarray(t_null)))]
-    tax.scatter(t_null_center, marker='X', color='red', label="Original", s=50)
-    line += t_null_center
+    t_null, _ = yield
+    points, distance = yield tuple(scatter_plot(t_null, 'red')) + ('red',)
 
-    points, distance = yield
+    t_null_center = [tuple(geometric_median(np.asarray(t_null)))]
+    line += t_null_center
+    line_ax.scatter(t_null_center, marker='X', color='red', label="Original", s=50)
+
     while points is not None:
         color = cm.viridis(distance/tree_length)
-        tax.scatter(points, marker='.', color=color, s=10)
         c = [tuple(geometric_median(np.asarray(points)))]
         line += c
-        tax.scatter(c, marker='X', color=color, label="T_%s" % distance, s=50)
+        line_ax.scatter(c, marker='X', color=color, label="T_%s" % distance, s=50)
 
-        points, distance = yield
+        points, distance = yield tuple(scatter_plot(points, color)) + (color,)
 
-    tax.plot(line, linewidth=2, color='red', label='trajectory')
-    tax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-    figure.set_tight_layout(True)
-    yield figure
+    line_ax.plot(line, linewidth=2, color='red', label='trajectory')
+    yield line_fig
+    background, _ = figure_factory(background=True)
+    yield background
 
 
 def group_by_transect(table, tree, distance):
@@ -251,11 +292,16 @@ def shear_no_prune(tree, names):
     return tcopy
 
 
-def tree_to_array(tree):
+def tree_to_array(tree, mode):
     children = []
     parents = []
     names = []
     distances = []
+
+    accumulator = {
+        'max': lambda acc, elem: max(acc, elem),
+        'min': lambda acc, elem: min(acc, elem) if acc else elem
+    }[mode]
 
     tree.parent_idx = 0
     idx = 0
@@ -264,13 +310,9 @@ def tree_to_array(tree):
     while queue:
         node = queue.pop()
 
-        distance_to_longest_tip = 0
+        acc_distance = 0
         for tip in node.tips():
-            if distance_to_longest_tip:
-                distance_to_longest_tip = min(distance_to_longest_tip,
-                                              node.distance(tip))
-            else:
-                distance_to_longest_tip = node.distance(tip)
+            acc_distance = accumulator(acc_distance, node.distance(tip))
 
         for child in node.children:
             child.parent_idx = idx
@@ -280,7 +322,7 @@ def tree_to_array(tree):
         if not node.name:
             node.name = ""
         names.append(node.name.strip())
-        distances.append(distance_to_longest_tip)
+        distances.append(acc_distance)
 
         offset += len(node.children)
         idx += 1
@@ -332,3 +374,81 @@ def collapse_tree(x, depth):
                 mapping[i] = [i]
 
     return mapping
+
+
+TEMPLATE = """
+<html>
+<head>
+<script src="https://code.jquery.com/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script>
+var transects = {
+{% for label, _ in legend %}
+   "{{ label }}": "url('layers/{{ label }}.png')",
+{% endfor %}
+};
+
+var highlight = "";
+
+function updatePlot() {
+    var elements = ["url('layers/bg.png')"];
+    $('.label').each(function() {
+        if ($(this).data('active')) {
+            elements.push(transects[$(this).attr('id')])
+        }
+    });
+
+    if (highlight) {
+        elements.push("url('layers/" + highlight + ".h.png')")
+    }
+
+    elements.reverse()
+    $('#plot').css('background-image', elements.join(','));
+}
+
+$(function() {
+    $('.label').hover(function() {
+        highlight = $(this).attr('id');
+        updatePlot();
+    }, function() {
+        highlight = '';
+        updatePlot();
+    });
+
+    $('.label').click(function() {
+        if ($(this).data('active')) {
+            $(this).data('active', false);
+            $(this).find('.colorbox').hide();
+        } else {
+            $(this).data('active', true);
+            $(this).find('.colorbox').show();
+        }
+        updatePlot();
+    });
+
+    updatePlot();
+});
+</script>
+<body style="font-family: Arial; font-size: 14px">
+<div id="container" style="display: flex">
+    <div id="plot" style="width: 600px; height: 600px">
+    </div>
+    <div id="legend" style="padding-top: 20px">
+    {% for label, color in legend %}
+        <div id="{{ label }}" class="label" style="cursor: pointer" data-active="true">
+            <span style="background-color: {{ color }}; width: 0.6em; height: 0.8em; display: inline-block" class="colorbox"></span>
+            <span>{{ label }}</span>
+        </div>
+    {% endfor %}
+    </div>
+    <div id="files">
+        <ul>
+        <li><a href="collapsed_groups.tsv">collapsed_groups.tsv</a></li>
+        {% for file in filenames %}
+        <li><a href="ranks/{{ file }}">{{ file }}</a></li>
+        {% endfor %}
+        </ul>
+    </div>
+</div>
+</body>
+</html>
+"""

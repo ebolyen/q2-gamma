@@ -28,7 +28,8 @@ plugin.visualizers.register_function(
         'case_where': plg.Str,
         'control_where': plg.Str,
         'n_transects': plg.Int % plg.Range(1, 50),
-        'stratify_by': plg.Str
+        'stratify_by': plg.Str,
+        'mode': plg.Str % plg.Choices({'max', 'min'})
     },
     input_descriptions={
         'table': '',
