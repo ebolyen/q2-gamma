@@ -134,7 +134,7 @@ def figure_factory(background=False):
     figure.set_size_inches(6, 6)
     if background:
         tax.set_title("", fontsize=20)
-        tax.bottom_axis_label("Case", fontsize=14)
+        tax.bottom_axis_label("Case", fontsize=14, offset=-0.05)
         tax.left_axis_label("Control", fontsize=14)
         tax.right_axis_label("Shared", fontsize=14)
         tax.ticks(axis='lbr', linewidth=1, multiple=0.1, tick_formats="%.1f")
@@ -145,6 +145,8 @@ def figure_factory(background=False):
     tax.clear_matplotlib_ticks()
 
     tax.line((0, 1, 0), (0.5, 0, 0.5), linewidth=.5, color='black', linestyle="-")
+    figure.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
+    tax._redraw_labels()
     return figure, tax
 
 
